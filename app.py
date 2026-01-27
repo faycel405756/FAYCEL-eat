@@ -1,16 +1,18 @@
 import httpx
 import warnings
 from fastapi import FastAPI, Query
-from fastapi.responses import HTMLResponse
 from urllib.parse import urlparse, parse_qs
 from urllib3.exceptions import InsecureRequestWarning
 
 warnings.filterwarnings("ignore", category=InsecureRequestWarning)
 
-app = FastAPI()
+app = FastAPI(title="Garena Eat Token Decoder API")
 
 
-async def get_garena_data(eat_token: str):
+@app.get("/decode")
+async def decode_eat_token(
+    eat_token: str = Query(..., description="Garena Eat Token")
+):
     try:
         async with httpx.AsyncClient(
             verify=False,
@@ -18,19 +20,24 @@ async def get_garena_data(eat_token: str):
             follow_redirects=False
         ) as client:
 
-            # 1) إرسال Eat Token إلى Garena
+            # إرسال التوكن إلى Garena
             url = f"https://api-otrss.garena.com/support/callback/?access_token={eat_token}"
-            res = await client.get(url)
+            response = await client.get(url)
 
-            # لازم يكون Redirect
-            if not (300 <= res.status_code < 400):
-                return {"error": "Invalid or expired eat token"}
+            if not (300 <= response.status_code < 400):
+                return {
+                    "status": "error",
+                    "message": "Invalid or expired eat token"
+                }
 
-            location = res.headers.get("Location")
+            location = response.headers.get("Location")
             if not location:
-                return {"error": "No redirect location"}
+                return {
+                    "status": "error",
+                    "message": "Redirect location not found"
+                }
 
-            # 2) استخراج البيانات من رابط التحويل
+            # استخراج البيانات من رابط التحويل
             parsed = urlparse(location)
             params = parse_qs(parsed.query)
 
@@ -42,9 +49,11 @@ async def get_garena_data(eat_token: str):
             lang = params.get("lang", [None])[0]
 
             if not access_token or not account_id:
-                return {"error": "Failed to extract data from redirect"}
+                return {
+                    "status": "error",
+                    "message": "Failed to extract redirect data"
+                }
 
-            # 3) إرجاع نفس البيانات كـ JSON
             return {
                 "status": "success",
                 "access_token": access_token,
@@ -52,28 +61,24 @@ async def get_garena_data(eat_token: str):
                 "nickname": nickname,
                 "region": region,
                 "game": game,
-                "lang": lang,
+                "language": lang,
                 "redirect_url": location
             }
 
     except Exception as e:
-        return {"error": "server error", "details": str(e)}
+        return {
+            "status": "error",
+            "message": "Server error",
+            "details": str(e)
+        }
 
 
-@app.get("/", response_class=HTMLResponse)
-async def home():
-    return """
-    <center>
-        <h2>Garena Eat Token Decoder</h2>
-        <p>Use:</p>
-        <code>/Eat?eat_token=YOUR_EAT_TOKEN</code>
-    </center>
-    """
-
-
-@app.get("/Eat")
-async def eat(eat_token: str = Query(..., description="Garena Eat Token")):
-    return await get_garena_data(eat_token)
+@app.get("/")
+def home():
+    return {
+        "message": "Garena Eat Token Decoder API",
+        "usage": "/decode?eat_token=YOUR_EAT_TOKEN"
+    }
 
 
 if __name__ == "__main__":
